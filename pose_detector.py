@@ -47,7 +47,7 @@ class PoseDetector(object):
         return kernel
 
     def compute_optimal_size(self, orig_img, img_size):
-        """画像のサイズが幅と高さが8の倍数になるように調節する"""
+        # """画像のサイズが幅と高さが8の倍数になるように調節する"""
         orig_img_h, orig_img_w, _ = orig_img.shape
         aspect = orig_img_h / orig_img_w
         if orig_img_h < orig_img_w:
