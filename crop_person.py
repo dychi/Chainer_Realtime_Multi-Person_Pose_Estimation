@@ -32,7 +32,6 @@ if __name__ == '__main__':
         # detect person
          cropped_person_img, bbox = pose_detector.crop_person(img, person_pose, unit_length) 
          if cropped_person_img is not None:
-             # res_img = pose_detector.crop_image(res_img, bbox)
              cv2.rectangle(res_img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 255, 255), 1)
 
     print('Saving result into crop_result.png...')
