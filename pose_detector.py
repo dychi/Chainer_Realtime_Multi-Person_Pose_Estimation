@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage.filters import gaussian_filter
+import sys
 
 import chainer
 from chainer import cuda, serializers, functions as F

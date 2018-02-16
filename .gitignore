@@ -2,14 +2,13 @@
 __pycache__/
 cocoapi/
 coco/
-models/
 /coco
 result/
 result.png
 .ipynb_checkpoints
 *.caffemodel
-*.caffemodel.1
 *.chainermodel
+*.chainermodel.1
 *.npz
 *.png
 *.mp4
