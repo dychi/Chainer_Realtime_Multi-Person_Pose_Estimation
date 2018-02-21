@@ -468,7 +468,7 @@ if __name__ == '__main__':
 
     # inference
     person_pose_array, all_peaks, h2s = pose_detector(img)
-    print(h2s[-1]) 
+    #print(h2s[-1]) 
 
     # draw and save image
     img = draw_person_pose(img, person_pose_array)
@@ -479,5 +479,10 @@ if __name__ == '__main__':
 
     img = cv2.imread(args.img)
     # print(all_peaks[0,1], all_peaks[0,2])
-    bg = plot_all_peaks(img, all_peaks)
-    cv2.imwrite('heatmap.png', bg)
+    #bg = plot_all_peaks(img, all_peaks)
+    #cv2.imwrite('heatmap.png', bg)
+    
+    unit_length = PoseDetector.get_unit_length(person_pose_array)
+    print(unit_length.data)
+    cropped_img, bbox = PoseDetector.crop_image(img, person_pose_array, unit_length)
+    cv2.imwrite('crop_person.png', cropped_img)

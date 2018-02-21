@@ -12,3 +12,5 @@ result.png
 *.npz
 *.png
 *.mp4
+*.jpg
+*.swap

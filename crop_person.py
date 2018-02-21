@@ -26,14 +26,17 @@ if __name__ == '__main__':
     res_img = cv2.addWeighted(img, 0.6, draw_person_pose(img, person_pose_array), 0.4, 0)
 
     # each person detected
-    for person_pose in person_pose_array:
+    for i, person_pose in enumerate(person_pose_array):
          unit_length = pose_detector.get_unit_length(person_pose)
        
         # detect person
          cropped_person_img, bbox = pose_detector.crop_person(img, person_pose, unit_length) 
          if cropped_person_img is not None:
-             cv2.rectangle(res_img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 255, 255), 1)
+             # cv2.rectangle(res_img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 255, 255), 1)
+             crop_img = img[bbox[1]:bbox[3], bbox[0]:bbox[2]] #bbox=(x_lefttop,y)
+             cv2.imwrite('crop_{0:02d}.png'.format(i), crop_img)
+             print(bbox)
 
     print('Saving result into crop_result.png...')
-    cv2.imwrite('crop_result.png', res_img)
+    #cv2.imwrite('crop_result.png', res_img)
 
