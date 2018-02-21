@@ -4,7 +4,6 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage.filters import gaussian_filter
-import sys
 
 import chainer
 from chainer import cuda, serializers, functions as F
@@ -511,3 +510,4 @@ if __name__ == '__main__':
     img = draw_person_pose(img, person_pose_array)
     print('Saving result into result.png...')
     cv2.imwrite('result.png', img)
+

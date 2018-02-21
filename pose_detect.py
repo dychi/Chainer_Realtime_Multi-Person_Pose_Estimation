@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage.filters import gaussian_filter
+import sys
 
 import chainer
 from chainer import cuda, serializers, functions as F
@@ -336,55 +337,6 @@ class PoseDetector(object):
         cropped_img = self.crop_image(img, bbox)
         return cropped_img, bbox
 
-
-    def crop_face(self, img, person_pose, unit_length):
-        face_size = unit_length
-        face_img = None
-        bbox = None
-
-        # if have nose
-        if person_pose[JointType.Nose][2] > 0:
-            nose_pos = person_pose[JointType.Nose][:2]
-            face_top = int(nose_pos[1] - face_size * 1.2)
-            face_bottom = int(nose_pos[1] + face_size * 0.8)
-            face_left = int(nose_pos[0] - face_size)
-            face_right = int(nose_pos[0] + face_size)
-            bbox = (face_left, face_top, face_right, face_bottom)
-            face_img = self.crop_image(img, bbox)
-
-        return face_img, bbox
-
-
-    def crop_hands(self, img, person_pose, unit_length):
-        hands = {
-            "left": None,
-            "right": None
-        }
-
-        if person_pose[JointType.LeftHand][2] > 0:
-            crop_center = person_pose[JointType.LeftHand][:-1]
-            if person_pose[JointType.LeftElbow][2] > 0:
-                direction_vec = person_pose[JointType.LeftHand][:-1] - person_pose[JointType.LeftElbow][:-1]
-                crop_center += (0.3 * direction_vec).astype(crop_center.dtype)
-            hand_img, bbox = self.crop_around_keypoint(img, crop_center, unit_length * 0.95)
-            hands["left"] = {
-                "img": hand_img,
-                "bbox": bbox
-            }
-
-        if person_pose[JointType.RightHand][2] > 0:
-            crop_center = person_pose[JointType.RightHand][:-1]
-            if person_pose[JointType.RightElbow][2] > 0:
-                direction_vec = person_pose[JointType.RightHand][:-1] - person_pose[JointType.RightElbow][:-1]
-                crop_center += (0.3 * direction_vec).astype(crop_center.dtype)
-            hand_img, bbox = self.crop_around_keypoint(img, crop_center, unit_length * 0.95)
-            hands["right"] = {
-                "img": hand_img,
-                "bbox": bbox
-            }
-
-        return hands
-
     def crop_image(self, img, bbox):
         left, top, right, bottom = bbox
         img_h, img_w, img_ch = img.shape
@@ -432,7 +384,7 @@ class PoseDetector(object):
             if self.device >= 0:
                 x_data = cuda.to_gpu(x_data)
 
-            h1s, h2s = self.model(x_data)
+            h1s, h2s = self.model(x_data) # h1=pafs, h2=heatmaps
 
             pafs_sum += F.resize_images(h1s[-1], (resized_output_img_h, resized_output_img_w)).data[0]
             heatmaps_sum += F.resize_images(h2s[-1], (resized_output_img_h, resized_output_img_w)).data[0]
@@ -451,7 +403,9 @@ class PoseDetector(object):
         all_peaks[:, 1] *= orig_img_w / resized_output_img_w
         all_peaks[:, 2] *= orig_img_h / resized_output_img_h
         person_pose_array = self.subsets_to_person_pose_array(subsets, all_peaks)
-        return person_pose_array
+        
+        #heatmap = gaussian_filter(heatmaps[0], sigma=params['gaussian_sigma'])
+        return person_pose_array, all_peaks, h2s
 
 
 def draw_person_pose(oriImg, person_pose):
@@ -489,6 +443,15 @@ def draw_person_pose(oriImg, person_pose):
                 cv2.circle(canvas, (x, y), 6, color, -1)
     return canvas
 
+def plot_all_peaks(image, all_peaks):
+    bg = np.zeros_like(image)
+    for i in range(len(all_peaks)):
+        pos_x = np.array(all_peaks[i, 1], dtype=int)
+        pos_y = np.array(all_peaks[i, 2], dtype=int)
+        cv2.circle(bg, (pos_x, pos_y), 4, (255, 255, 255), -1)
+
+    return bg
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Pose detector')
     parser.add_argument('arch', choices=params['archs'].keys(), default='posenet', help='Model architecture')
@@ -504,10 +467,17 @@ if __name__ == '__main__':
     img = cv2.imread(args.img)
 
     # inference
-    person_pose_array = pose_detector(img)
+    person_pose_array, all_peaks, h2s = pose_detector(img)
+    print(h2s[-1]) 
 
     # draw and save image
     img = draw_person_pose(img, person_pose_array)
+    
+
     print('Saving result into result.png...')
     cv2.imwrite('result.png', img)
 
+    img = cv2.imread(args.img)
+    # print(all_peaks[0,1], all_peaks[0,2])
+    bg = plot_all_peaks(img, all_peaks)
+    cv2.imwrite('heatmap.png', bg)
