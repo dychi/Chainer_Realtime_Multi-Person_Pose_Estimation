@@ -263,8 +263,8 @@ class PoseDetector(object):
                     joints.append([0, 0, 0])
             person_pose_array.append(np.array(joints))
         person_pose_array = np.array(person_pose_array)
-        return person_pose_array
-
+        return person_pose_array   
+    
     def compute_limbs_length(self, joints):
         limbs = []
         limbs_len = np.zeros(len(params["limbs_point"]))
@@ -277,15 +277,15 @@ class PoseDetector(object):
 
         return limbs_len, limbs
 
-    def compute_unit_length(self, limbs_len):
+    def compute_unit_length(self, limbs_len): # 鼻首の長さを優先しない
         unit_length = 0
-        base_limbs_len = limbs_len[[14, 3, 0, 13, 9]] # (鼻首、首左腰、首右腰、肩左耳、肩右耳)の長さの比率(このどれかが存在すればこれを優先的に単位長さの計算する)
+        base_limbs_len = limbs_len[[3, 0, 13, 9]] # (鼻首、首左腰、首右腰、肩左耳、肩右耳)の長さの比率(このどれかが存在すればこれを優先的に単位長さの計算する)
         non_zero_limbs_len = base_limbs_len > 0
         if len(np.nonzero(non_zero_limbs_len)[0]) > 0:
-            limbs_len_ratio = np.array([0.85, 2.2, 2.2, 0.85, 0.85])
+            limbs_len_ratio = np.array([2.2, 2.2, 0.85, 0.85])
             unit_length = np.sum(base_limbs_len[non_zero_limbs_len] / limbs_len_ratio[non_zero_limbs_len]) / len(np.nonzero(non_zero_limbs_len)[0])
         else:
-            limbs_len_ratio = np.array([2.2, 1.7, 1.7, 2.2, 1.7, 1.7, 0.6, 0.93, 0.65, 0.85, 0.6, 0.93, 0.65, 0.85, 1, 0.2, 0.2, 0.25, 0.25])
+            limbs_len_ratio = np.array([2.2, 1.7, 1.7, 2.2, 1.7, 1.7, 0.6, 0.93, 0.65, 0.85, 0.6, 0.93, 0.65, 0.85, 1, 0.2, 0.2, 0.25, 0.25]) # 鼻首を1としている
             non_zero_limbs_len = limbs_len > 0
             unit_length = np.sum(limbs_len[non_zero_limbs_len] / limbs_len_ratio[non_zero_limbs_len]) / len(np.nonzero(non_zero_limbs_len)[0])
 
@@ -296,7 +296,7 @@ class PoseDetector(object):
         unit_length = self.compute_unit_length(limbs_length)
 
         return unit_length
-
+    
     def crop_around_keypoint(self, img, keypoint, crop_size):
         x, y = keypoint
         left = int(x - crop_size)
