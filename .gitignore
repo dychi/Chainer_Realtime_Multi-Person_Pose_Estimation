@@ -15,5 +15,7 @@ result.png
 *.jpg
 <<<<<<< HEAD
 *.swap
+*.swo
+*.swp
 =======
 >>>>>>> def3452a0c10fa80b099e05aff6278ac0164919e
