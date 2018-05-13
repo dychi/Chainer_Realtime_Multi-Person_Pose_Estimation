@@ -9,7 +9,7 @@ from scipy.ndimage.filters import gaussian_filter
 import chainer
 from chainer import cuda, serializers, functions as F
 
-from entity import params, JointType
+from original.entity import params, JointType
 from models.CocoPoseNet import CocoPoseNet
 
 
