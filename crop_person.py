@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import argparse
 import chainer
-from entity import params
-from pose_detector import PoseDetector, draw_person_pose
+from original.entity import params
+from original.pose_detector import PoseDetector, draw_person_pose
 
 
 chainer.using_config('enable_backprop', False)
