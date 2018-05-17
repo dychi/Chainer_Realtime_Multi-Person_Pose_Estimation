@@ -1,0 +1,13 @@
+n
+smpt
+smpb
+rtpt
+rtpb
+bhpt
+bhpb
+fhpt
+fhpb
+lbpt
+lbpb
+spt
+spb
