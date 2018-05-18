@@ -1,6 +1,7 @@
 import cv2
 import os
 import sys
+import pandas as pd
 import numpy as np
 from PIL import Image
 import argparse
@@ -137,7 +138,7 @@ def get_new_bbox(current_bbox_center, previous_bbox):
 
 parser = argparse.ArgumentParser(description='Crop person')
 parser.add_argument('--img_dir', '-d', help='original image dir')
-parser.add_argument('--out_dir', '-o')
+# parser.add_argument('--out_dir', '-o')
 parser.add_argument('--pose_num', '-pn', type=int)
 # parser.add_argument('weights', help='weidths file path')
 # parser.add_argument('--gpu', '-g', type=int, default=-1)
@@ -150,23 +151,27 @@ print("load model done!")
 
 
 # for 文でループ回す、一つ前のフレームを保持する
-imgs_dir = np.sort(os.listdir(args.img_dir))
+imgs_dir = pd.read_csv('./feature_images.txt', sep=',', usecols=[1,2])
 
 previous_bbox = 0
-for i, img_name in enumerate(imgs_dir):
+for i, img_name in enumerate(imgs_dir["Img_name"]):
     img = cv2.imread(args.img_dir + '/{}'.format(img_name))
-    play_region_img, mask = select_region(img)
+    img_copy = img.copy()
+    play_region_img, mask = select_region(img_copy)
     multi_poses, scores = pose_detector(play_region_img)
-    # 右足の座標でポーズをソートする ⇨ 0:bottom, 1:top player
-    multi_person_poses = multi_poses[np.argsort(multi_poses[:, 10, 1])[::-1]]
-    # もしposes配列に一つもなければスキップする
-    if len(multi_poses)==0:
-        continue
-        
-    # 0:bottom, 1:top player
+    # 全パーツの平均の座標でポーズをソートする ⇨ 0:bottom, 1:top player
+    ave_pose = np.average(multi_poses[:], axis=1)
+    multi_person_poses = multi_poses[np.argsort(ave_pose[:,1])[::-1]]
+    
+    # 0:bottom, 1:top plaiyer
     pose_num = args.pose_num
     # pose_numが変わってもディレクトリは変わらないようにするため
     player_dir = pose_num
+    
+    high, wid, ch = img.shape
+    # もしposes配列に一つもなければスキップする
+    if (len(multi_poses)==0):
+        continue
     
     unit, limb_length = get_unit_length(multi_person_poses[pose_num])
     cropped_img, bbox = crop_person(img, multi_person_poses[pose_num], unit)
@@ -175,7 +180,7 @@ for i, img_name in enumerate(imgs_dir):
     if i == 0:
         print('Skipped first roop')
         previous_bbox = list(bbox)
-        cv2.imwrite(args.out_dir + '/{0}/{1}'.format(player_dir, img_name), cropped_img)
+        cv2.imwrite('./data/{0}/{1}'.format(player_dir, img_name), cropped_img)
         previous_bbox_center = get_centerof_bbox(bbox)
         continue
         
@@ -187,7 +192,7 @@ for i, img_name in enumerate(imgs_dir):
     
     # 選手位置がずれていないか
     if (diffence_length > bbox_width): # 選手位置が大きくずれている
-        print('Detected different player: img_08{}.png'.format(i))
+        print('Detected different player: {}'.format(img_name))
         # ---------ここで違う姿勢を検出してしまったときの処理必要---------
         if pose_num == 0:
             pose_num += 1
@@ -197,6 +202,8 @@ for i, img_name in enumerate(imgs_dir):
         cropped_img, bbox = crop_person(img, multi_person_poses[pose_num], unit)
         current_bbox_center = get_centerof_bbox(bbox)
         new_bbox = get_new_bbox(current_bbox_center, previous_bbox)
+        # selected area 以外で検出されて人物を切り取ろうとするとエラーが発生する
+        img = cv2.imread(args.img_dir + '/{}'.format(img_name))
         cropped_img = pose_detector.crop_image(img, new_bbox)
         
     else: # 選手位置がずれていない
@@ -209,12 +216,13 @@ for i, img_name in enumerate(imgs_dir):
         if (current_bbox_area > previous_bbox_area*2): # bboxが大きすぎる
             # 前フレームのbboxと比較して大きすぎたら、今のフレームの重心を中心に前フレームと同じ大きさのbboxを使う
             new_bbox = get_new_bbox(current_bbox_center, previous_bbox)
+            img = cv2.imread(args.img_dir + '/{}'.format(img_name))
             cropped_img = pose_detector.crop_image(img, new_bbox)
             print('Bbox was too big in the image: {}'.format(img_name))
         else: # bboxが正しい大きさ
             # bboxの位置を更新する
             previous_bbox = bbox
             
-    cv2.imwrite(args.out_dir + '/{0}/{1}'.format(player_dir, img_name), cropped_img)
+    cv2.imwrite('./data/{0}/{1}'.format(player_dir, img_name), cropped_img)
 
 print('Done!')
