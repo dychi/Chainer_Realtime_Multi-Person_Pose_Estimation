@@ -3,7 +3,6 @@ import os
 import sys
 import pandas as pd
 import numpy as np
-from PIL import Image
 import argparse
 import matplotlib.pyplot as plt
 
@@ -11,7 +10,7 @@ sys.path.append('../')
 from original.entity import params, JointType
 from badminton_pose_detector import PoseDetector, draw_person_pose
 
-
+# define infer area
 def select_region(image):
     if len(image.shape) == 3:
         high, wid, ch = image.shape
@@ -34,6 +33,7 @@ def select_region(image):
 
     return cv2.bitwise_and(image, mask), mask
 
+# code from openpose
 def compute_limbs_length(joints): # limbs_len is something wrong
     limbs = []
     limbs_len = np.zeros(len(params["limbs_point"])) # 19 points
@@ -153,13 +153,13 @@ print("load model done!")
 # for 文でループ回す、一つ前のフレームを保持する
 imgs_dir = pd.read_csv('./feature_images.txt', sep=',', usecols=[1,2])
 
-previous_bbox = 0
+previous_bbox = np.zeros(4)
 for i, img_name in enumerate(imgs_dir["Img_name"]):
     img = cv2.imread(args.img_dir + '/{}'.format(img_name))
     img_copy = img.copy()
     play_region_img, mask = select_region(img_copy)
     multi_poses, scores = pose_detector(play_region_img)
-    # 全パーツの平均の座標でポーズをソートする ⇨ 0:bottom, 1:top player
+    # 全パーツの平均の座標でポーズをソートする ⇨ pose_num = 0:bottom, 1:top player
     ave_pose = np.average(multi_poses[:], axis=1)
     multi_person_poses = multi_poses[np.argsort(ave_pose[:,1])[::-1]]
     
@@ -182,8 +182,18 @@ for i, img_name in enumerate(imgs_dir["Img_name"]):
         previous_bbox = list(bbox)
         cv2.imwrite('./data/{0}/{1}'.format(player_dir, img_name), cropped_img)
         previous_bbox_center = get_centerof_bbox(bbox)
+        bbox_size = get_bbox_area(previous_bbox_center)
         continue
         
+    # ポイント毎にprevious_bboxを初期化する
+    if (imgs_dir["Labels"][i] != imgs_dir["Labels"][i-1]):
+        previous_bbox_area = get_bbox_area(previous_bbox)
+        previous_bbox = list(bbox) 
+        cv2.imwrite('./data/{0}/{1}'.format(player_dir, img_name), cropped_img)
+        previous_bbox_center = get_centerof_bbox(bbox)
+        continue
+        
+
     # 前フレームのbboxの座標と比較して離れすぎていたら前のフレームのbboxを利用する
     current_bbox_center = get_centerof_bbox(bbox)
     diffence = np.abs(previous_bbox_center - current_bbox_center)
@@ -204,8 +214,11 @@ for i, img_name in enumerate(imgs_dir["Img_name"]):
         new_bbox = get_new_bbox(current_bbox_center, previous_bbox)
         # selected area 以外で検出されて人物を切り取ろうとするとエラーが発生する
         img = cv2.imread(args.img_dir + '/{}'.format(img_name))
-        cropped_img = pose_detector.crop_image(img, new_bbox)
-        
+        try:
+            cropped_img = pose_detector.crop_image(img, new_bbox)
+        except:
+           continue 
+
     else: # 選手位置がずれていない
         # 矩形の面積を求める
         previous_bbox_area = get_bbox_area(previous_bbox)
