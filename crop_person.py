@@ -125,14 +125,20 @@ def get_centerof_bbox(bbox): # should be (x,y)
     return center_point
 
 # 選手の位置は合っているが矩形の大きさがおかしいので、今のフレームの重心を中心にして前フレームのbboxの大きさを切り取る
-def get_new_bbox(current_bbox_center, previous_bbox):
-    new_bbox = np.copy(previous_bbox)
-    half_width = abs(previous_bbox[0] - previous_bbox[2])/2*1.2
-    half_hight = abs(previous_bbox[1] - previous_bbox[3])/2*1.2
-    new_bbox[0] = current_bbox_center[0] - half_width
+def get_new_bbox(current_bbox_center, fixed_bbox_height, current_bbox_pos, current_pose):
+    # copy array
+    new_bbox = np.copy(current_bbox_pos)
+    # define new_bbox with pose
+    pose_width = (
+    pose_height = 
+
+    half_hight = fixed_bbox_height/2*1.2
+    # bbox height
     new_bbox[1] = current_bbox_center[1] - half_hight
-    new_bbox[2] = current_bbox_center[0] + half_width
     new_bbox[3] = current_bbox_center[1] + half_hight
+    # bbox width
+    new_bbox[0] = current_bbox_center[0] - half_width
+    new_bbox[2] = current_bbox_center[0] + half_width 
     return new_bbox
 
 
@@ -168,7 +174,6 @@ for i, img_name in enumerate(imgs_dir["Img_name"]):
     # pose_numが変わってもディレクトリは変わらないようにするため
     player_dir = pose_num
     
-    high, wid, ch = img.shape
     # もしposes配列に一つもなければスキップする
     if (len(multi_poses)==0):
         continue
@@ -182,59 +187,23 @@ for i, img_name in enumerate(imgs_dir["Img_name"]):
         previous_bbox = list(bbox)
         cv2.imwrite('./data/{0}/{1}'.format(player_dir, img_name), cropped_img)
         previous_bbox_center = get_centerof_bbox(bbox)
-        bbox_size = get_bbox_area(previous_bbox_center)
+        fixed_bbox_height = abs(bbox[1] - bbox[3])
         continue
         
-    # ポイント毎にprevious_bboxを初期化する
-    if (imgs_dir["Labels"][i] != imgs_dir["Labels"][i-1]):
-        previous_bbox_area = get_bbox_area(previous_bbox)
-        previous_bbox = list(bbox) 
-        cv2.imwrite('./data/{0}/{1}'.format(player_dir, img_name), cropped_img)
-        previous_bbox_center = get_centerof_bbox(bbox)
-        continue
-        
-
-    # 前フレームのbboxの座標と比較して離れすぎていたら前のフレームのbboxを利用する
+           
     current_bbox_center = get_centerof_bbox(bbox)
-    diffence = np.abs(previous_bbox_center - current_bbox_center)
-    diffence_length = np.linalg.norm(diffence)
-    bbox_width = abs(bbox[0] - bbox[2])
-    
-    # 選手位置がずれていないか
-    if (diffence_length > bbox_width): # 選手位置が大きくずれている
-        print('Detected different player: {}'.format(img_name))
-        # ---------ここで違う姿勢を検出してしまったときの処理必要---------
-        if pose_num == 0:
-            pose_num += 1
-        else:
-            pose_num -= 1
-        unit, limb_length = get_unit_length(multi_person_poses[pose_num])
-        cropped_img, bbox = crop_person(img, multi_person_poses[pose_num], unit)
-        current_bbox_center = get_centerof_bbox(bbox)
-        new_bbox = get_new_bbox(current_bbox_center, previous_bbox)
-        # selected area 以外で検出されて人物を切り取ろうとするとエラーが発生する
+    current_bbox_height = abs(bbox[1] - bbox[3]) 
+    # 大きさには対応しているかどうか
+    if (current_bbox_height > fixed_bbox_height*1.4): # bboxが大きすぎる
+        # 前フレームのbboxと比較して大きすぎたら、今のフレームの重心を中心に前フレームと同じ大きさのbboxを使う
+        new_bbox = get_new_bbox(current_bbox_center, fixed_bbox_height, previous_bbox, multi_person_poses[pose_num])
         img = cv2.imread(args.img_dir + '/{}'.format(img_name))
-        try:
-            cropped_img = pose_detector.crop_image(img, new_bbox)
-        except:
-           continue 
-
-    else: # 選手位置がずれていない
-        # 矩形の面積を求める
-        previous_bbox_area = get_bbox_area(previous_bbox)
-        current_bbox_area = get_bbox_area(bbox)
-        # 選手の位置がずれていなかったら重心の更新
-        previous_bbox_center = np.copy(current_bbox_center)
-        # 大きさには対応しているかどうか
-        if (current_bbox_area > previous_bbox_area*2): # bboxが大きすぎる
-            # 前フレームのbboxと比較して大きすぎたら、今のフレームの重心を中心に前フレームと同じ大きさのbboxを使う
-            new_bbox = get_new_bbox(current_bbox_center, previous_bbox)
-            img = cv2.imread(args.img_dir + '/{}'.format(img_name))
-            cropped_img = pose_detector.crop_image(img, new_bbox)
-            print('Bbox was too big in the image: {}'.format(img_name))
-        else: # bboxが正しい大きさ
-            # bboxの位置を更新する
-            previous_bbox = bbox
+        cropped_img = pose_detector.crop_image(img, new_bbox)
+        print('Bbox was too big in the image: {}'.format(img_name))
+        previous_bbox = new_bbox
+    else: # bboxが正しい大きさ
+        # bboxの位置を更新する
+        previous_bbox = bbox
             
     cv2.imwrite('./data/{0}/{1}'.format(player_dir, img_name), cropped_img)
 
