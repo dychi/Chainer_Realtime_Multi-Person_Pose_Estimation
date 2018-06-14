@@ -167,7 +167,6 @@ def modify_bbox(multi_person_poses, pose_num, image, img_name, fixed_bbox_height
 parser = argparse.ArgumentParser(description='Crop person')
 parser.add_argument('--img_dir', '-d', help='original image dir')
 # parser.add_argument('--out_dir', '-o')
-parser.add_argument('--pose_num', '-pn', type=int)
 parser.add_argument('--feat_file', '-ff', help='featured image list txt file')
 # parser.add_argument('weights', help='weidths file path')
 # parser.add_argument('--gpu', '-g', type=int, default=-1)
