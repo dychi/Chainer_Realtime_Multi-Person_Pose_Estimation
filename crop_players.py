@@ -156,7 +156,7 @@ def modify_bbox(multi_person_poses, pose_num, image, img_name, fixed_bbox_height
         except:
             print('dimention error at {0}, bbox: {1}'.format(img_name, new_bbox))
             # continue
-        print('Bbox was too big in the image: {}'.format(img_name))
+        # print('Bbox was too big in the image: {}'.format(img_name))
         previous_bbox = new_bbox
     else: # bboxが正しい大きさ
         # bboxの位置を更新する

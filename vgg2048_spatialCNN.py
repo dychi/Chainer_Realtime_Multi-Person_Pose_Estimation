@@ -13,7 +13,7 @@ from chainer.links import caffe
 from chainer.serializers import npz
 
 
-model_npz = np.load('./VGG_CNN_M_2048.npz')
+chainer.config.train = False
 
 class BaseVGG(chainer.Chain):
     def __init__(self):
@@ -45,12 +45,13 @@ class BaseVGG(chainer.Chain):
 
     
 class VGG(chainer.Chain):
-    def __init__(self, pretrained_model=model_npz):
+    def __init__(self, pretrained_model='./VGG_CNN_M_2048.npz'):
         super(VGG, self).__init__()
         with self.init_scope():
             self.base = BaseVGG()
             self.fc6 = L.Linear(None, 4096)
             self.fc7 = L.Linear(4096, 2048)
+        npz.load_npz(pretrained_model, self.base)
     
     def __call__(self, x):
         h = self.predict(x)
@@ -58,8 +59,8 @@ class VGG(chainer.Chain):
     
     def predict(self, x):
         h = self.base(x)
-        h = F.dropout(F.relu(self.fc6(h)), ratio=.5)
-        h = F.dropout(F.relu(self.fc7(h)), ratio=.5)
+        h = F.relu(self.fc6(h))#, ratio=.5)
+        h = F.relu(self.fc7(h))#, ratio=.5)
         return h
 
 
@@ -99,19 +100,23 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # モデルの読み込み
-    model = VGG(pretrained_model=model_npz)
+    model = VGG()
+    model.disable_update()
     
     # 画像ディレクトリのpath
     img_list_file = pd.read_csv(args.img_list_file, sep=',', usecols=[1,2])
     imgs_name = img_list_file["Img_name"]
     
+    num = 2
     feat_array = []
     for i, img_path in enumerate(imgs_name):
-        if i == 5:
+        if i == 2:
             break
-            
         pixs = change_image_size(args.imgs_dir + '/{}'.format(img_path))
-        y = model(pixs)
+        with chainer.using_config('enable_backprop', not volatile), chainer.using_config('train', False):
+            y = model(pixs)
         feat_array.append(y[0])
     
     print(feat_array)
+    print(chainer.config.train)
+
