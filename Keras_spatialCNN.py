@@ -40,6 +40,8 @@ if __name__ == '__main__':
         x_0 = np.expand_dims(x_0, axis=0)
         x_0 = preprocess_input(x_0)
         feature_0 = model.predict(x_0)
+        print(type(feat_array_0))
+        print(feature_0[0].shape)
         feat_array_0.append(feature_0[0])
         
         # player 1

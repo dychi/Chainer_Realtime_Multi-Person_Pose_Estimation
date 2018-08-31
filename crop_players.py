@@ -4,7 +4,7 @@ import sys
 import pandas as pd
 import numpy as np
 import argparse
-import matplotlib.pyplot as plt
+import pickle
 
 sys.path.append('../')
 from original.entity import params, JointType
@@ -33,206 +33,196 @@ def select_region(image):
 
     return cv2.bitwise_and(image, mask), mask
 
-# code from openpose
-def compute_limbs_length(joints): # limbs_len is something wrong
-    limbs = []
-    limbs_len = np.zeros(len(params["limbs_point"])) # 19 points
-    for i, joint_indices in enumerate(params["limbs_point"]):
-        if joints[joint_indices[0]] is not None and joints[joint_indices[1]] is not None: # 鼻or首があるか確認する
-            limbs.append([joints[joint_indices[0]], joints[joint_indices[1]]])
-            limbs_len[i] = np.linalg.norm(joints[joint_indices[1]][:-1] - joints[joint_indices[0]][:-1])
-        else:
-            limbs.append(None)
+def get_fix_bbox(pose):
+    # 重心を計算
+    pose_xy = pose[:, :2]
+    nonzero = pose_xy.nonzero()
+    current_bbox_center = pose_xy[nonzero].reshape(-1, 2).mean(axis=0)
+    # 固定サイズで切り取り
+    height = 454
+    width = 340
+    new_bbox = np.zeros(4).astype(np.int64) # typeを指定しないとcrop_imageでslice errorが起きる
+    new_bbox[0] = current_bbox_center[0] - (width // 2)
+    new_bbox[1] = current_bbox_center[1] - (height // 2)
+    new_bbox[2] = current_bbox_center[0] + (width // 2)
+    new_bbox[3] = current_bbox_center[1] + (height // 2)
+    return new_bbox, current_bbox_center
 
-    return limbs_len, limbs
+def get_bbox_center(pose):
+    # 重心を計算
+    pose_xy = pose[:, :2]
+    nonzero = pose_xy.nonzero()
+    bbox_center = pose_xy[nonzero].reshape(-1, 2).mean(axis=0)
+    return bbox_center
 
-def compute_unit_length(limbs_len): # 鼻首の長さを優先しない
-    unit_length = 0
-    base_limbs_len = limbs_len[[3, 0, 13, 9]] # (首左腰、首右腰、肩左耳、肩右耳)の長さの比率(このどれかが存在すればこれを優先的に単位長さの計算する)
-    non_zero_limbs_len = base_limbs_len > 0
-    if len(np.nonzero(non_zero_limbs_len)[0]) > 0:
-        limbs_len_ratio = np.array([2.2, 2.2, 0.85, 0.85])
-        unit_length = np.sum(base_limbs_len[non_zero_limbs_len] / limbs_len_ratio[non_zero_limbs_len]) / len(np.nonzero(non_zero_limbs_len)[0])
-    else:
-        limbs_len_ratio = np.array([2.2, 1.7, 1.7, 2.2, 1.7, 1.7, 0.6, 0.93, 0.65, 0.85, 0.6, 0.93, 0.65, 0.85, 1, 0.2, 0.2, 0.25, 0.25]) # 鼻首を1としている
-        non_zero_limbs_len = limbs_len > 0
-        unit_length = np.sum(limbs_len[non_zero_limbs_len] / limbs_len_ratio[non_zero_limbs_len]) / len(np.nonzero(non_zero_limbs_len)[0])
+def CalcBbox(ordered_poses:list, previous_bbox:list, img_copy):
+    # Crop Previous Image
+    prev_cropped_img = pose_detector.crop_image(img_copy, previous_bbox)
+    prev_hist = CalcHist(prev_cropped_img)
+    
+    # Compare Current Image's histgram
+    pose_len = len(ordered_poses)
+    res = []
+    bbox = []
+    for i in range(pose_len):
+        new_bbox, bbox_center = get_fix_bbox(ordered_poses[i])
+        cropped_img = pose_detector.crop_image(img_copy, new_bbox)
+        hist = CalcHist(cropped_img)
+        score = cv2.compareHist(prev_hist, hist, 0)
+        res.append(score)
+        bbox.append(new_bbox)
+    ### -------- histgramを比較 --------------
+    max_index = np.argmax(res)
+    correct_bbox = bbox[max_index]
+    if res[max_index] < 0.7:
+        correct_bbox = previous_bbox
+    return correct_bbox, max_index
 
-    return unit_length
-
-def get_unit_length(person_pose):
-    limbs_length, limbs = compute_limbs_length(person_pose)
-    unit_length = compute_unit_length(limbs_length)
-
-    return unit_length, limbs_length
-
-# define crop person
-def crop_person(img, person_pose, unit_length):
-    top_joint_priority = [4, 5, 6, 12, 16, 7, 13, 17, 8, 10, 14, 9, 11, 15, 2, 3, 0, 1, sys.maxsize]
-    bottom_joint_priority = [9, 6, 7, 14, 16, 8, 15, 17, 4, 2, 0, 5, 3, 1, 10, 11, 12, 13, sys.maxsize]
-
-    top_joint_index = len(top_joint_priority) - 1
-    bottom_joint_index = len(bottom_joint_priority) - 1
-    left_joint_index = 0
-    right_joint_index = 0
-    top_pos = sys.maxsize
-    bottom_pos = 0
-    left_pos = sys.maxsize
-    right_pos = 0
-
-    for i, joint in enumerate(person_pose):
-        if joint[2] > 0:
-            if top_joint_priority[i] < top_joint_priority[top_joint_index]:
-                top_joint_index = i
-            elif bottom_joint_priority[i] < bottom_joint_priority[bottom_joint_index]:
-                bottom_joint_index = i
-            if joint[1] < top_pos:
-                top_pos = joint[1]
-            elif joint[1] > bottom_pos:
-                bottom_pos = joint[1]
-
-            if joint[0] < left_pos:
-                left_pos = joint[0]
-                left_joint_index = i
-            elif joint[0] > right_pos:
-                right_pos = joint[0]
-                right_joint_index = i
-
-    top_padding_ratio = [0.9, 1.9, 1.9, 2.9, 3.7, 1.9, 2.9, 3.7, 4.0, 5.5, 7.0, 4.0, 5.5, 7.0, 0.7, 0.8, 0.7, 0.8]
-    bottom_padding_ratio = [6.9, 5.9, 5.9, 4.9, 4.1, 5.9, 4.9, 4.1, 3.8, 2.3, 0.8, 3.8, 2.3, 0.8, 7.1, 7.0, 7.1, 7.0]
-
-    left = (left_pos - 0.3 * unit_length).astype(int)
-    right = (right_pos + 0.3 * unit_length).astype(int)
-    top = (top_pos - top_padding_ratio[top_joint_index] * unit_length).astype(int)
-    bottom = (bottom_pos + bottom_padding_ratio[bottom_joint_index] * unit_length).astype(int)
-    bbox = (left, top, right, bottom)
-
-    cropped_img = pose_detector.crop_image(img, bbox)
-    return cropped_img, bbox
-
-# 矩形内の面積を求める
-def get_bbox_area(bbox):
-    width = abs(bbox[0] - bbox[2])
-    hight = abs(bbox[1] - bbox[3])
-    area = width * hight
-    return area
-
-# 矩形内の重心座標を取得する
-def get_centerof_bbox(bbox): # should be (x,y)
-    left_top = np.array([bbox[0], bbox[1]])
-    right_bottom = np.array([bbox[2], bbox[3]])
-    center_point = (left_top + right_bottom)//2
-    return center_point
-
-# 選手の位置は合っているが矩形の大きさがおかしいので、今のフレームの重心を中心にして前フレームのbboxの大きさを切り取る
-def get_new_bbox(current_bbox_center, fixed_bbox_height, current_bbox_pos, current_pose):
-    # copy array
-    new_bbox = np.copy(current_bbox_pos)
-    # define new_bbox with pose
-    # pose_width = (
-    # pose_height = 
-
-    half_hight = fixed_bbox_height/2*1.2
-    half_width = abs(current_bbox_pos[0] - current_bbox_pos[2])/2
-    # bbox height
-    new_bbox[1] = current_bbox_center[1] - half_hight
-    new_bbox[3] = current_bbox_center[1] + half_hight
-    # bbox width
-    new_bbox[0] = current_bbox_center[0] - half_width
-    new_bbox[2] = current_bbox_center[0] + half_width 
-    return new_bbox
-
-def modify_bbox(multi_person_poses, pose_num, image, img_name, fixed_bbox_height, previous_bbox):
-    unit, limb_length = get_unit_length(multi_person_poses[pose_num])
-    cropped_img, bbox = crop_person(image, multi_person_poses[pose_num], unit)
-    current_bbox_center = get_centerof_bbox(bbox)
-    current_bbox_height = abs(bbox[1] - bbox[3]) 
-    # 大きさには対応しているかどうか
-    if (current_bbox_height > fixed_bbox_height*1.4): # bboxが大きすぎる
-        # 前フレームのbboxと比較して大きすぎたら、今のフレームの重心を中心に前フレームと同じ大きさのbboxを使う
-        new_bbox = get_new_bbox(current_bbox_center, fixed_bbox_height, previous_bbox, multi_person_poses[pose_num])
-        try:
-            cropped_img = pose_detector.crop_image(image, new_bbox)
-        except:
-            print('dimention error at {0}, bbox: {1}'.format(img_name, new_bbox))
-            # continue
-        # print('Bbox was too big in the image: {}'.format(img_name))
-        previous_bbox = new_bbox
-    else: # bboxが正しい大きさ
-        # bboxの位置を更新する
-        previous_bbox = bbox
-
-    return cropped_img, previous_bbox
-
-parser = argparse.ArgumentParser(description='Crop person')
-parser.add_argument('--img_dir', '-d', help='original image dir')
-# parser.add_argument('--out_dir', '-o')
-parser.add_argument('--feat_file', '-ff', help='featured image list txt file')
-# parser.add_argument('weights', help='weidths file path')
-# parser.add_argument('--gpu', '-g', type=int, default=-1)
-args = parser.parse_args()
+def CalcHist(cropped_img):
+# Histgram
+    color = ('b','g','r')
+    Hist = []
+    for i,col in enumerate(color):
+        histr = cv2.calcHist([cropped_img],[i],None,[256],[0,256])
+        Hist.append(histr[:])
+    return np.squeeze(Hist)
 
 
-#load model
-pose_detector = PoseDetector("posenet", "models/coco_posenet.npz", device=0, precise=True)
-print("load model done!")
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Crop person')
+    parser.add_argument('--num', type=int)
+    args = parser.parse_args()
 
-# 有効なフレームのリストのテキストファイルを読み込む
-imgs_dir = pd.read_csv(args.feat_file, sep=',', usecols=[1,2])
+    #load model
+    pose_detector = PoseDetector("posenet", "models/coco_posenet.npz", device=0, precise=True)
+    print("load model done!")
 
-# bboxの初期化
-previous_bbox = np.zeros(4)
-# 最初のフレーム。initializer
-first_frame = imgs_dir["Img_name"][0]
-# read firstframe
-img = cv2.imread(args.img_dir + '/{}'.format(first_frame))
-img_copy = img.copy()
-play_region_img, mask = select_region(img_copy)
-multi_poses, scores = pose_detector(play_region_img)
-# 全パーツの平均の座標でポーズをソートする ⇨ pose_num = 0:bottom, 1:top player
-ave_pose = np.average(multi_poses[:], axis=1)
-multi_person_poses = multi_poses[np.argsort(ave_pose[:,1])[::-1]]
+    # DATASETS
+    DATASETS_DIR = os.path.dirname(os.path.abspath(__file__)) + '/../badminton_action_recognition_using_pose_estimation/datasets'
+    # Match Number and Name
+    num = args.num
+    labels = pd.read_csv(DATASETS_DIR + '/match_number.txt')
+    name = labels.dir_name[num-1]
 
-# write both players of first frame
-## player0
-unit_0, limb_length_0 = get_unit_length(multi_person_poses[0])
-cropped_img_0, bbox_0 = crop_person(img, multi_person_poses[0], unit_0)
-print('Done first frame player_0')
-previous_bbox_0 = list(bbox_0)
-# write image
-cv2.imwrite('./data/0/{}'.format(first_frame), cropped_img_0)
-previous_bbox_center_0 = get_centerof_bbox(bbox_0)
-fixed_bbox_height_0 = abs(bbox_0[1] - bbox_0[3])
-
-## player1
-unit_1, limb_length_1 = get_unit_length(multi_person_poses[1])
-cropped_img_1, bbox_1 = crop_person(img, multi_person_poses[1], unit_1)
-print('Done first frame player_1')
-previous_bbox_1 = list(bbox_1)
-# write image
-cv2.imwrite('./data/1/{}'.format(first_frame), cropped_img_1)
-previous_bbox_center_1 = get_centerof_bbox(bbox_1)
-fixed_bbox_height_1 = abs(bbox_1[1] - bbox_1[3])
-
-for i, img_name in enumerate(imgs_dir["Img_name"]):
-    img = cv2.imread(args.img_dir + '/{}'.format(img_name))
+    # 有効なフレームのリストのテキストファイルを読み込む
+    imgs_dir = pd.read_csv(DATASETS_DIR + '/match_{0}/{1}_feature_images.txt'.format(num, name), sep=',', usecols=[1,2])
+    
+    # ====== 初期化 =======
+    # 最初のフレーム。initializer
+    first_frame = imgs_dir["Img_name"][0]
+    # read firstframe
+    img = cv2.imread(DATASETS_DIR + '/match_{0}/{1}/{2}'.format(num, name, first_frame))
     img_copy = img.copy()
+    img_copy = cv2.cvtColor(img_copy, cv2.COLOR_BGR2RGB)
     play_region_img, mask = select_region(img_copy)
     multi_poses, scores = pose_detector(play_region_img)
-    # もしposes配列に一つもなければスキップする
-    if (len(multi_poses)==0):
-        print('Skipped at {}'.format(img_name))
-        continue
-    # 全パーツの平均の座標でポーズをソートする ⇨ pose_num = 0:bottom, 1:top player
-    ave_pose = np.average(multi_poses[:], axis=1)
-    multi_person_poses = multi_poses[np.argsort(ave_pose[:,1])[::-1]]
-    # try-except
-    try:
-        cropped_img_0, pre_bbox_0 = modify_bbox(multi_person_poses, 0, img, img_name, fixed_bbox_height_0, previous_bbox_0)
-        cropped_img_1, pre_bbox_1 = modify_bbox(multi_person_poses, 1, img, img_name, fixed_bbox_height_1, previous_bbox_1)
-    except:
-        continue
-    cv2.imwrite('./data/0/{}'.format(img_name), cropped_img_0)
-    cv2.imwrite('./data/1/{}'.format(img_name), cropped_img_1)
+    # ポーズの配列で検出された関節点の数が8より少なければドロップする
+    nonzero_index = [i for i, pose in enumerate(multi_poses[:,:,0]) if np.count_nonzero(pose) > 8]
+    # 全パーツの高さの座標でポーズをソートする ⇨ pose_num = 0:bottom, 1:top player
+    max_pose = np.max(multi_poses[nonzero_index], axis=1)
+    ordered_poses = multi_poses[np.argsort(max_pose[:,1])[::-1]]
 
-print('Done!')
+    ## --------- player0 ---------
+    first_bbox_0, first_bbox_center_0 = get_fix_bbox(ordered_poses[0])
+    cropped_img_0 = pose_detector.crop_image(img, first_bbox_0)
+    print('Done first frame player_0', first_bbox_0)
+    previous_bbox_0 = first_bbox_0
+    # write image
+    cv2.imwrite(DATASETS_DIR + '/match_{0}/0/{1}'.format(num, first_frame), cropped_img_0)
+
+    ## --------- player1 ---------
+    first_bbox_1, first_bbox_center_1 = get_fix_bbox(ordered_poses[1])
+    cropped_img_1 = pose_detector.crop_image(img, first_bbox_1)
+    print('Done first frame player_1')
+    previous_bbox_1 = first_bbox_1
+    # write image
+    cv2.imwrite(DATASETS_DIR + '/match_{0}/1/{1}'.format(num, first_frame), cropped_img_1)
+    
+    # ========= iterator ==========
+    # Prepare Extract Index
+    extract_index =[]
+    imgs_num = imgs_dir['Img_name'].str.extract('(.+)_(.+)\.(.+)')[1]
+    for i, num_str in enumerate(imgs_num):
+        if num_str == list(imgs_num)[-1]:
+            break
+        elif (int(imgs_num[i+1]) - int(num_str)) > 2:
+            # カメラアングルが変わる前のインデックスを保存して、下のprevious_bboxの更新時に利用する
+            extract_index.append(i)
+    
+    ## Pose用の配列を準備する
+    pose_0 = []
+    pose_1 = []
+    pose_dic0 = {}
+    pose_dic1 = {}
+
+    for i, img_name in enumerate(imgs_dir["Img_name"]):
+        # Skip 
+        #if i > 3 and i < 130:
+            #continue
+
+        img = cv2.imread(DATASETS_DIR + '/match_{0}/{1}/{2}'.format(num, name, img_name))
+        img_copy = img.copy()
+        img_copy = cv2.cvtColor(img_copy, cv2.COLOR_BGR2RGB)
+        play_region_img, mask = select_region(img_copy)
+        multi_poses, scores = pose_detector(play_region_img)
+        # ポーズの配列で検出された関節点の数が8より少なければドロップする
+        nonzero_index = [i for i, pose in enumerate(multi_poses[:,:,0]) if np.count_nonzero(pose) > 8]
+        
+        # もしposes配列に一つもなければスキップする
+        if (len(nonzero_index) <= 1):
+            print('Skipped at {}'.format(img_name))
+            continue
+        
+        # 全パーツの高さの最大座標でポーズをソートする ⇨ pose_num = 0:bottom, 1:top player
+        max_pose = np.max(multi_poses[nonzero_index], axis=1)
+        ordered_poses = multi_poses[np.argsort(max_pose[:,1])[::-1]]
+        
+        # Calculate Correct Bbox
+        correct_bbox_0, index_0 = CalcBbox(ordered_poses, previous_bbox_0, img_copy)
+        correct_bbox_1, index_1 = CalcBbox(ordered_poses, previous_bbox_1, img_copy)
+        
+        # Get Bbox Center
+        bbox_center_0 = get_bbox_center(ordered_poses[index_0])
+        bbox_center_1 = get_bbox_center(ordered_poses[index_1])
+
+        # Condition for Bounding Box
+        if bbox_center_0[1] <= bbox_center_1[1]:
+            print('Index0: {}, Index1: {}'.format(index_0, index_1))
+            # ポーズの重心から固定サイズのbboxを切り取る
+            correct_bbox_0, bbox_center_0 = get_fix_bbox(ordered_poses[0])
+            correct_bbox_1, bbox_center_1 = get_fix_bbox(ordered_poses[1])
+        
+
+
+        # Crop Image
+        cropped_img_0 = pose_detector.crop_image(img, correct_bbox_0)
+        cropped_img_1 = pose_detector.crop_image(img, correct_bbox_1)
+
+        cv2.imwrite(DATASETS_DIR + '/match_{0}/0/{1}'.format(num, img_name), cropped_img_0)
+        cv2.imwrite(DATASETS_DIR + '/match_{0}/1/{1}'.format(num, img_name), cropped_img_1)
+
+        print(img_name)
+        ## POSE FEATURE
+        pose0 = ordered_poses[index_0][:,:2].reshape((1,-1), order='F')
+        pose1 = ordered_poses[index_1][:,:2].reshape((1,-1), order='F')
+        pose_0.append(pose0[0])
+        pose_1.append(pose1[0])
+        pose_dic0[img_name] = pose0[0]
+        pose_dic1[img_name] = pose1[0]
+
+        # Update bbox
+        if i in extract_index:
+            previous_bbox_0 = first_bbox_0
+            previous_bbox_1 = first_bbox_1
+        else:
+            previous_bbox_0 = correct_bbox_0
+            previous_bbox_1 = correct_bbox_1
+        
+    # Save PoseFeature
+    Poses = np.hstack((pose_0, pose_1))
+    Poses_shape = Poses.shape
+    print('End at {0} and {1}'.format(img_name, Poses_shape))
+    with open(DATASETS_DIR + '/match_{0}/PoseFeature_scrach_{1}.pkl'.format(num, name), 'wb') as f:
+        pickle.dump(Poses, f)
+    
+    print('Done!')

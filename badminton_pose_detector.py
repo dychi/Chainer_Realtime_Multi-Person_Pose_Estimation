@@ -1,3 +1,4 @@
+# coding: utf-8 
 import cv2
 import sys
 import math
@@ -352,53 +353,6 @@ class PoseDetector(object):
         cropped_img = self.crop_image(img, bbox)
         return cropped_img, bbox
 
-    def crop_face(self, img, person_pose, unit_length):
-        face_size = unit_length
-        face_img = None
-        bbox = None
-
-        # if have nose
-        if person_pose[JointType.Nose][2] > 0:
-            nose_pos = person_pose[JointType.Nose][:2]
-            face_top = int(nose_pos[1] - face_size * 1.2)
-            face_bottom = int(nose_pos[1] + face_size * 0.8)
-            face_left = int(nose_pos[0] - face_size)
-            face_right = int(nose_pos[0] + face_size)
-            bbox = (face_left, face_top, face_right, face_bottom)
-            face_img = self.crop_image(img, bbox)
-
-        return face_img, bbox
-
-    def crop_hands(self, img, person_pose, unit_length):
-        hands = {
-            "left": None,
-            "right": None
-        }
-
-        if person_pose[JointType.LeftHand][2] > 0:
-            crop_center = person_pose[JointType.LeftHand][:-1]
-            if person_pose[JointType.LeftElbow][2] > 0:
-                direction_vec = person_pose[JointType.LeftHand][:-1] - person_pose[JointType.LeftElbow][:-1]
-                crop_center += (0.3 * direction_vec).astype(crop_center.dtype)
-            hand_img, bbox = self.crop_around_keypoint(img, crop_center, unit_length * 0.95)
-            hands["left"] = {
-                "img": hand_img,
-                "bbox": bbox
-            }
-
-        if person_pose[JointType.RightHand][2] > 0:
-            crop_center = person_pose[JointType.RightHand][:-1]
-            if person_pose[JointType.RightElbow][2] > 0:
-                direction_vec = person_pose[JointType.RightHand][:-1] - person_pose[JointType.RightElbow][:-1]
-                crop_center += (0.3 * direction_vec).astype(crop_center.dtype)
-            hand_img, bbox = self.crop_around_keypoint(img, crop_center, unit_length * 0.95)
-            hands["right"] = {
-                "img": hand_img,
-                "bbox": bbox
-            }
-
-        return hands
-
     def crop_image(self, img, bbox):
         left, top, right, bottom = bbox
         img_h, img_w, img_ch = img.shape
@@ -561,6 +515,13 @@ def plot_all_peaks(image, all_peaks):
         cv2.circle(bg, (pos_x, pos_y), 4, (255, 255, 255), -1)
     return bg
 
+def convert_to_image(heatmap):
+    max_nd = np.max(heatmap)
+    heatmap /= max_nd
+    heatmap *= 255
+    return heatmap
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Pose detector')
     parser.add_argument('arch', choices=params['archs'].keys(), default='posenet', help='Model architecture')
@@ -568,6 +529,7 @@ if __name__ == '__main__':
     parser.add_argument('--img', '-i', default=None, help='image file path')
     parser.add_argument('--gpu', '-g', type=int, default=-1, help='GPU ID (negative value indicates CPU)')
     parser.add_argument('--precise', action='store_true', help='do precise inference')
+    parser.add_argument('--select-region', action='store_true')
     args = parser.parse_args()
 
     chainer.config.enable_backprop = False
@@ -578,11 +540,18 @@ if __name__ == '__main__':
 
     # read image
     img = cv2.imread(args.img)
+    img_copy = img.copy()
+
+    # Select Region
+    if args.select_region:
+        from crop_players import select_region
+        img_copy, mask = select_region(img_copy)
 
     # inference
-    poses, _ = pose_detector(img)
+    poses, scores = pose_detector(img_copy)
 
+    #cv2.imwrite('heatmap.png', heatmaps)
     # draw and save image
     img = draw_person_pose(img, poses)
     print('Saving result into result.png...')
-    cv2.imwrite('result.png', img)
+    cv2.imwrite('./data/result.png', img)
